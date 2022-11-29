@@ -22,37 +22,52 @@ class Grid:
         :param spawns: how many new blocks are added at each iteration
         :numgen a callable that generates a number to populate the grid. If unspecified, we
         """
-        self.state: np.ndarray = np.zeros((dim, dim), dtype=int)
+        self.grid: np.ndarray = np.zeros((dim, dim), dtype=int)
+        self.gameover: bool = False
         self._spawn_freq: int = spawns
         self.dim: int = dim
         self.score: int = 0
 
-        self.numgen = numgen if numgen else generate_biased_two_four
+        self.numgen: Callable = numgen if numgen else generate_biased_two_four
 
         # The lib used to visualise the grid
-        self.viz = VisualizeGrid(align='center')
+        self.viz: VisualizeGrid = VisualizeGrid(align='center')
 
         # Init the game
-        self.spawn(2)
+        self._spawn_(2)
 
     @property
     def max(self) -> int:
-        return self.state.max()
+        return self.grid.max()
 
     @property
     def maxchar(self):
         return max(5, len(str(self.max)))
 
     def set_state(self, mat: np.ndarray):
-        if not self.state.shape == mat.shape or not self.state.dtype == mat.dtype:
-            raise ValueError(f"Either the matrix shape: {mat.shape} is not expected i.e.: {self.state.shape}, "
-                             f"or the dtype: {mat.dtype} is not expected i.e.: {self.state.dtype}")
+        if not self.grid.shape == mat.shape or not self.grid.dtype == mat.dtype:
+            raise ValueError(f"Either the matrix shape: {mat.shape} is not expected i.e.: {self.grid.shape}, "
+                             f"or the dtype: {mat.dtype} is not expected i.e.: {self.grid.dtype}")
 
-        self.state = mat
+        self.grid = mat
 
-    def spawn(self, n):
+    def _game_is_over_(self):
+        """ We probably can not fit anything here now. """
+        self.gameover = True
+
+    def _spawn_(self, n=-1):
+
+        if n < 0:
+            n = self._spawn_freq
+
         # choose n places from empty cells
-        zeros_x, zeros_y = np.where(self.state == 0)
+        zeros_x, zeros_y = np.where(self.grid == 0)
+
+        if len(zeros_x) == 0:
+            # The game is over
+            self._game_is_over_()
+            return
+
         inds = np.random.choice(np.arange(len(zeros_x)), n)
         insert_x = zeros_x[inds]
         insert_y = zeros_y[inds]
@@ -60,9 +75,7 @@ class Grid:
         # choose values to insert
         values = [self.numgen() for _ in range(n)]
 
-        self.state[insert_x, insert_y] = values
-
-        assert len(self.state.nonzero()[0]) == 2, self.__repr__()
+        self.grid[insert_x, insert_y] = values
 
     @staticmethod
     def _shift_row_(row: np.ndarray) -> np.ndarray:
@@ -109,27 +122,47 @@ class Grid:
 
     def up(self):
 
+        if self.gameover:
+            raise RuntimeError(f"The game is already over!")
+
         # Go over each column and treat it as a row; add it back as a column
         for i in range(self.dim):
-            self.state[:,i] = self._proc_row_(self.state[:,i])
+            self.grid[:, i] = self._proc_row_(self.grid[:, i])
+
+        self._spawn_()
 
     def down(self):
 
+        if self.gameover:
+            raise RuntimeError("The game is already over!")
+
         # Go over each column and treat it as a row; invert it; add it back as a column after inverting the output
         for i in range(self.dim):
-            self.state[:, i] = self._proc_row_(self.state[:, i][::-1])[::-1]
+            self.grid[:, i] = self._proc_row_(self.grid[:, i][::-1])[::-1]
+
+        self._spawn_()
 
     def left(self):
 
+        if self.gameover:
+            raise RuntimeError(f"The game is already over!")
+
         # Go over each row and simply pass to the proc row
-        for i, row in enumerate(self.state):
-            self.state[i] = self._proc_row_(row)
+        for i, row in enumerate(self.grid):
+            self.grid[i] = self._proc_row_(row)
+
+        self._spawn_()
 
     def right(self):
 
+        if self.gameover:
+            raise RuntimeError(f"The game is already over!")
+
         # Go over each row and simply pass to the proc row but inverted; and invert the output also
-        for i, row in enumerate(self.state):
-            self.state[i] = self._proc_row_(row[::-1])[::-1]
+        for i, row in enumerate(self.grid):
+            self.grid[i] = self._proc_row_(row[::-1])[::-1]
+
+        self._spawn_()
 
     def __repr__(self) -> str:
 

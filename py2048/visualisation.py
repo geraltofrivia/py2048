@@ -193,7 +193,7 @@ class VisualizeGrid:
         quarry = [self.theme.top(row_len)]
         for rowid in range(grid.dim):
             quarry += [self.theme.empty(cell_len, grid.dim) for _ in range(self.pad_ver)]
-            quarry += [self._make_row_(grid.state[rowid], val_len)]
+            quarry += [self._make_row_(grid.grid[rowid], val_len)]
             quarry += [self.theme.empty(cell_len, grid.dim) for _ in range(self.pad_ver)]
             if not rowid == grid.dim-1:
                 quarry += [self.theme.hline(row_len)]
@@ -207,4 +207,6 @@ class VisualizeGrid:
 
         return '\n'.join(quarry)
 
+    def game_over(self, grid):
 
+        ...
