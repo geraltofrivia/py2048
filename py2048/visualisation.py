@@ -4,7 +4,7 @@ from typing import Optional, Callable
 from math import log10, floor
 import numpy as np
 
-from utils import mutstr
+from .utils import mutstr
 
 
 class Theme(ABC):
@@ -155,7 +155,7 @@ class VisualizeGrid:
             theme: str = 'Rounded',
             pad_hor: int = 1,
             pad_ver: int = 0,
-            align='left'):
+            align='center'):
 
         if theme.lower() == 'rounded':
             self.theme: Theme = Rounded()
@@ -183,7 +183,7 @@ class VisualizeGrid:
 
     def __call__(self, grid):
         """ Give it an initialized grid """
-        val_len = len(str(grid.max))
+        val_len = grid.maxchar
         cell_len = val_len + (2 * self.pad_hor)
 
         # left border + all cell content + cell borders + right border
@@ -193,7 +193,7 @@ class VisualizeGrid:
         quarry = [self.theme.top(row_len)]
         for rowid in range(grid.dim):
             quarry += [self.theme.empty(cell_len, grid.dim) for _ in range(self.pad_ver)]
-            quarry += [self._make_row_(grid.grid[rowid], val_len)]
+            quarry += [self._make_row_(grid.state[rowid], val_len)]
             quarry += [self.theme.empty(cell_len, grid.dim) for _ in range(self.pad_ver)]
             if not rowid == grid.dim-1:
                 quarry += [self.theme.hline(row_len)]
