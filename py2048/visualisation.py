@@ -4,7 +4,7 @@ from typing import Optional, Callable
 from math import log10, floor
 import numpy as np
 
-from .utils import mutstr
+from utils import mutstr
 
 
 class Theme(ABC):
@@ -193,7 +193,7 @@ class VisualizeGrid:
         quarry = [self.theme.top(row_len)]
         for rowid in range(grid.dim):
             quarry += [self.theme.empty(cell_len, grid.dim) for _ in range(self.pad_ver)]
-            quarry += [self._make_row_(grid.grid[rowid], val_len)]
+            quarry += [self._make_row_(grid.vals[rowid], val_len)]
             quarry += [self.theme.empty(cell_len, grid.dim) for _ in range(self.pad_ver)]
             if not rowid == grid.dim-1:
                 quarry += [self.theme.hline(row_len)]
