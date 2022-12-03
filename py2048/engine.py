@@ -1,5 +1,6 @@
 """ Here be dataclasses we need """
 import json
+import curses
 import random
 import numpy as np
 from pathlib import Path
@@ -10,24 +11,35 @@ from visualisation import VisualizeGrid
 from utils import FancyDict, NoFreeCells, nparr_to_dict, dict_to_nparr, UnknownSessionID
 
 CONFIG = FancyDict(**{
-    'seed':42,
-    'savedir': './saves'
+    'seed': 42,
+    'savedir': Path('./saves')
 })
 
 random.seed(CONFIG.seed)
 np.random.seed(CONFIG.seed)
 
+ASCII = FancyDict(**{
+    's': 115,
+    'S': 83,
+    'q': 113,
+    'Q': 81,
+    'l': 107,
+    'L': 76,
+    'n': 110,
+    'N': 78,
+})
+
 
 def generate_biased_two_four():
-    return 4 if np.random.default_rng().uniform(0,1) > 0.8 else 2
+    return 4 if np.random.default_rng().uniform(0, 1) > 0.8 else 2
 
 
 def generate_uniform_two_four():
-    return 4 if np.random.default_rng().uniform(0,1) > 0.5 else 2
+    return 4 if np.random.default_rng().uniform(0, 1) > 0.5 else 2
 
 
 class Grid:
-    def __init__(self, dim: int = 4, spawns: int = 1, numgen: Optional[Callable] = None):
+    def __init__(self, dim: int = 4, spawns: int = 1, numgen: Optional[Callable] = None, debug: bool = False):
         """
             Grid is the fundamental thing we want to have. It is a size x size matrix.
             We have four functions: up, down, left, right which simulate movements etc
@@ -38,7 +50,7 @@ class Grid:
         self.vals: np.ndarray = np.zeros((dim, dim), dtype=int)
         self._spawn_freq: int = spawns
         self.dim: int = dim
-        self.score: int = 0
+        self._debug = debug
 
         self.numgen: Callable = numgen if numgen else generate_biased_two_four
 
@@ -46,16 +58,25 @@ class Grid:
         self.viz: VisualizeGrid = VisualizeGrid(align='center')
 
         # Init the game
-        self._spawn_(2)
+        self.spawn(2)
 
     def serialise(self) -> dict:
         # To make a nice json thing
-        ...
+        return {
+            'vals': nparr_to_dict(self.vals),
+            'numgen': self.numgen.__name__,
+            'spawns': self._spawn_freq,
+            'dim': self.dim
+        }
 
     @classmethod
-    def de_serialize(self, data: dict):
+    def de_serialize(cls, data: dict) -> 'Grid':
         # To make a nice json thing into an object
-        ...
+        numgen = locals()[data['numgen']]
+        grid = Grid(dim=data['dim'], spawns=data['spawns'], numgen=numgen)
+        vals = dict_to_nparr(data['vals'])
+        grid.set_vals(vals)
+        return grid
 
     @property
     def max(self) -> int:
@@ -65,7 +86,7 @@ class Grid:
     def maxchar(self):
         return max(5, len(str(self.max)))
 
-    def set_state(self, mat: np.ndarray):
+    def set_vals(self, mat: np.ndarray):
         if not self.vals.shape == mat.shape or not self.vals.dtype == mat.dtype:
             raise ValueError(f"Either the matrix shape: {mat.shape} is not expected i.e.: {self.vals.shape}, "
                              f"or the dtype: {mat.dtype} is not expected i.e.: {self.vals.dtype}")
@@ -74,9 +95,9 @@ class Grid:
 
     @property
     def is_stuck(self) -> bool:
-        return np.any(self.vals == 0)
+        return np.all(self.vals != 0)
 
-    def _spawn_(self, n=-1):
+    def spawn(self, n=-1):
 
         if n < 0:
             n = self._spawn_freq
@@ -113,7 +134,7 @@ class Grid:
                     # We slid the value from this position so let's move the slideto pointer here
                     row[slideto] = elem
                     row[i] = 0
-                    slideto = i
+                    slideto += 1
             else:
                 # ZERO VALUE: do nothing, don't even move the slider
                 ...
@@ -121,47 +142,82 @@ class Grid:
         return row
 
     @staticmethod
-    def _merge_row_(row: np.ndarray) -> np.ndarray:
+    def _merge_row_(row: np.ndarray) -> (np.ndarray, List[int]):
+        merges = []
 
         # Merge: if you find some consecutive cells, merge them. you should do the slide thing again afterwards.
         for i, curr in enumerate(row[:-1]):
-            if row[i] == row[i+1] != 0:
-                row[i] += row[i+1]
-                row[i+1] = 0
+            if row[i] == row[i + 1] != 0:
+                row[i] += row[i + 1]
+                merges.append(row[i])  # the new cell so if we merged 2+2 = 4, we note 4
+                row[i + 1] = 0
 
-        return row
+        return row, merges
 
-    def _proc_row_(self, row: np.ndarray) -> np.ndarray:
+    def _proc_row_(self, row: np.ndarray) -> (np.ndarray, List[int]):
         """ Run a shift and merge operation till arrays don't change. This assumes a row is undergoing the 'left' op """
-
+        if self._debug:
+            print('-------------------- AT START --------------------')
+            print(row)
         row = self._shift_row_(row)
-        row = self._merge_row_(row)
+        if self._debug:
+            print('-------------------- AFTER FIRST SHIFT --------------------')
+            print(row)
+        row, merges = self._merge_row_(row)
+        if self._debug:
+            print('-------------------- AFTER MERGE --------------------', merges)
+            print(row)
         row = self._shift_row_(row)
-        return row
+        if self._debug:
+            print('-------------------- AFTER SECOND SHIFT --------------------')
+            print(row)
+            print('-------------------- END END --------------------')
 
-    def up(self):
+        return row, merges
+
+    def up(self) -> List[int]:
 
         # Go over each column and treat it as a row; add it back as a column
+        merges = []
         for i in range(self.dim):
-            self.vals[:, i] = self._proc_row_(self.vals[:, i])
+            op =  self._proc_row_(self.vals[:, i])
+            self.vals[:, i] = op[0]
+            merges += op[1]
 
-    def down(self):
+        return merges
+
+    def down(self) -> List[int]:
 
         # Go over each column and treat it as a row; invert it; add it back as a column after inverting the output
+        merges = []
         for i in range(self.dim):
-            self.vals[:, i] = self._proc_row_(self.vals[:, i][::-1])[::-1]
+            op =  self._proc_row_(self.vals[:, i][::-1])
+            self.vals[:, i] = op[0][::-1]
+            merges += op[1]
 
-    def left(self):
+        return merges
+
+    def left(self) -> List[int]:
 
         # Go over each row and simply pass to the proc row
+        merges = []
         for i, row in enumerate(self.vals):
-            self.vals[i] = self._proc_row_(row)
+            op =  self._proc_row_(row)
+            self.vals[i] = op[0]
+            merges += op[1]
 
-    def right(self):
+        return merges
+
+    def right(self) -> List[int]:
 
         # Go over each row and simply pass to the proc row but inverted; and invert the output also
+        merges = []
         for i, row in enumerate(self.vals):
-            self.vals[i] = self._proc_row_(row[::-1])[::-1]
+            op =  self._proc_row_(row[::-1])
+            self.vals[i] = op[0][::-1]
+            merges += op[1]
+
+        return merges
 
     def __repr__(self) -> str:
 
@@ -177,12 +233,13 @@ class Game:
         This takes care of the 'scoring' part. This takes care of game over state.
         This keeps histories of commands and history of states
     """
-    def __init__(self, grid: Optional[Grid] = None, history: Optional[List[str]] = None, score: Optional[int] = None,
-                 session_id: str = None):
+
+    def __init__(self, grid: Optional[Grid] = None, history: Optional[List[int]] = None, score: Optional[int] = None,
+                 session_id: str = None, debug: bool = False):
 
         # All the state variables
-        self.grid = Grid() if not grid else grid
-        self.history: List[str] = [] if not history else history
+        self.grid = Grid(debug=debug) if not grid else grid
+        self.history: List[int] = [] if not history else history
         self.score = 0 if not score else score
         self.session_id = self._gen_session_id_() if not session_id else session_id
 
@@ -211,7 +268,7 @@ class Game:
         """ Return a new object of this class (or something) """
         return Game()
 
-    def command(self, arg_a: str, arg_b: Optional[str] = None) -> ('Game', str):
+    def command(self, arg_a: int, arg_b: Optional[str] = None) -> ('Game', str):
         """
             The commands are passed here almost raw.
 
@@ -226,25 +283,52 @@ class Game:
         """
 
         # save
-        if arg_a == 's':
+        if arg_a == ASCII.s or arg_a == ASCII.S:
             save_fname = self._save_()
             return self, f'File saved to {save_fname}'
 
         # load
-        elif arg_a == 'l':
+        elif arg_a == ASCII.l or arg_a == ASCII.L:
             try:
                 newgame_obj = self._load_(arg_b)
             except (UnknownSessionID, ValueError) as e:
                 self, f'Unable to load this session. {type(e)}: {e.args}'
 
         # newgame
-        elif arg_a == 'n':
+        elif arg_a == ASCII.n or arg_a == ASCII.N:
             return self._newgame_(), ''
 
         # direction: up or down or left or right
-        elif arg_a in ['up']:
-            # TODO: the core core logic comes here
-            ...
+        elif arg_a in [curses.KEY_DOWN, curses.KEY_UP, curses.KEY_RIGHT, curses.KEY_LEFT]:
+
+            """Stuff before invoking state change"""
+
+            """Invoking state change"""
+            if arg_a == curses.KEY_UP:
+                merges = self.grid.up()
+            elif arg_a == curses.KEY_DOWN:
+                merges = self.grid.down()
+            elif arg_a == curses.KEY_LEFT:
+                merges = self.grid.left()
+            elif arg_a == curses.KEY_RIGHT:
+                merges = self.grid.right()
+            else:
+                raise NotImplementedError("Code will never come here, this is only to calm PyCharm down.")
+
+            """Post invoking state change"""
+
+            self.history.append(arg_a)      # log the direction
+            self.score += sum(merges)       # update score
+            self.grid.spawn()               # spawn new values
+
+            # 3. is it game over? (do the game over fn)
+            if self.grid.is_stuck:
+                raise NotImplementedError(self.grid.vals, self.grid.is_stuck)
+
+            return self, ''
+
+        else:
+            return self, ''
 
     def _atexit_(self):
         """
@@ -285,7 +369,7 @@ class Game:
         :return:
         """
         # Check if savename is just the filename or the entire dir, and ensure it is a proper path
-        savename =  CONFIG.savedir / f"{session_id}.json"
+        savename = CONFIG.savedir / f"{session_id}.json"
 
         # Load the stuff
         try:
@@ -307,6 +391,23 @@ class Game:
 
 
 if __name__ == '__main__':
+    g = Game(debug=True)
+    print(g.grid)
+    print(g.score)
+    while True:
 
-    g = Grid()
-    print(g)
+        cmd = input('Write your command here: ').strip().lower()
+        if cmd == 'w':
+            g.command(curses.KEY_UP)
+        if cmd == 's':
+            g.command(curses.KEY_DOWN)
+        if cmd == 'a':
+            g.command(curses.KEY_LEFT)
+        if cmd == 'd':
+            g.command(curses.KEY_RIGHT)
+        if cmd == 'q':
+            break
+            # g.command(113)
+        print(g.grid)
+        print(g.score)
+    # print(g)
