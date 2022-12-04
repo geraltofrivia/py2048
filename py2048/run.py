@@ -37,13 +37,14 @@ def draw_menu(stdscr):
         stdscr.clear()
         height, width = stdscr.getmaxyx()
 
-        game, message = game.command(k)
+        game = game.command(k)
 
         # Declaration of strings
         # title = "Curses example"[:width-1]
         # subtitle = "Written by Clay McLeod"[:width-1]
         # keystr = "Last key pressed: {}".format(k)[:width-1]
-        statusbarstr = f"Press 'q' to exit | STATUS BAR | {message}"
+        statusbarstr = game.get_statusbar_message(width-1)
+
         # if k == 0:
         #     keystr = "No key press detected..."[:width-1]
         #
@@ -61,7 +62,7 @@ def draw_menu(stdscr):
         # Render status bar
         stdscr.attron(curses.color_pair(3))
         stdscr.addstr(height-1, 0, statusbarstr)
-        stdscr.addstr(height-1, len(statusbarstr), "|" * (10))
+        # stdscr.addstr(height-1, len(statusbarstr), "|" * (10))
         # stdscr.addstr(height-1, len(statusbarstr), "|" * (width - len(statusbarstr) - 1))
         stdscr.attroff(curses.color_pair(3))
 

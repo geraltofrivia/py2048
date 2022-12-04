@@ -8,7 +8,7 @@ from typing import Optional, Callable, List
 from random_username.generate import generate_username
 
 from visualisation import VisualizeGrid
-from utils import FancyDict, NoFreeCells, nparr_to_dict, dict_to_nparr, UnknownSessionID
+from utils import FancyDict, NoFreeCells, nparr_to_dict, dict_to_nparr, UnknownSessionID, VisualisationError
 
 CONFIG = FancyDict(**{
     'seed': 42,
@@ -27,7 +27,10 @@ ASCII = FancyDict(**{
     'L': 76,
     'n': 110,
     'N': 78,
+    'h': 104,
+    'H': 72,
 })
+ARROWS = {curses.KEY_UP: '↑', curses.KEY_DOWN: '↓', curses.KEY_LEFT: '←', curses.KEY_RIGHT: '→'}
 
 
 def generate_biased_two_four():
@@ -242,6 +245,33 @@ class Game:
         self.history: List[int] = [] if not history else history
         self.score = 0 if not score else score
         self.session_id = self._gen_session_id_() if not session_id else session_id
+        self.message = ''  # This message is updated at commands, and is queried as needed for the UI
+
+    def get_statusbar_message(self, width: int) -> str:
+        """
+            Left aligned: 8d score | instruction: press h for help |
+            Right aligned: 8long history (←↑→↓ | session ID)
+            Width: whitespace padding
+
+            If the combined length of left and right text is less than width; we only keep the left.
+            If width is even less than left width; raise assertion
+
+            TODO: add curses formatting support here
+        :return: str
+        """
+        left = f"{self.score:8d}|{self.message if self.message else 'Press h for help.'}"
+        history = ' '.join([ARROWS[direction] for direction in self.history[:-8:-1]])
+        right = f"{history}|{self.session_id}"
+
+        if len(left) + len(right) > width:
+            # Render only left
+            if len(left) > width:
+                raise VisualisationError(f"Width too narrow for statusbar. Must be at least {len(left)}. Is {width}.")
+            pad = ' '*(width - len(left))
+            return left + pad
+        else:
+            pad = ' '*(width - len(left) - len(right))
+            return left + pad + right
 
     @property
     def save_fname(self):
@@ -261,14 +291,14 @@ class Game:
         while save_fnm.exists():
             session_id = generate_username()[0]
             save_fnm = save_loc / (session_id + '.json')
-        return save_fnm
+        return save_fnm.stem
 
     @classmethod
     def _newgame_(cls) -> 'Game':
         """ Return a new object of this class (or something) """
         return Game()
 
-    def command(self, arg_a: int, arg_b: Optional[str] = None) -> ('Game', str):
+    def command(self, arg_a: int, arg_b: Optional[str] = None) -> 'Game':
         """
             The commands are passed here almost raw.
 
@@ -285,18 +315,27 @@ class Game:
         # save
         if arg_a == ASCII.s or arg_a == ASCII.S:
             save_fname = self._save_()
-            return self, f'File saved to {save_fname}'
+            self.message = f'File saved to {save_fname}'
+            return self
 
         # load
         elif arg_a == ASCII.l or arg_a == ASCII.L:
             try:
                 newgame_obj = self._load_(arg_b)
+                newgame_obj.message = 'Just loaded from disk.'
+                return newgame_obj
             except (UnknownSessionID, ValueError) as e:
-                self, f'Unable to load this session. {type(e)}: {e.args}'
+                self.message =  f'Unable to load this session. {type(e)}: {e.args}'
+                return self
 
         # newgame
         elif arg_a == ASCII.n or arg_a == ASCII.N:
-            return self._newgame_(), ''
+            self.message = ''
+            return self._newgame_()
+
+        elif arg_a == ASCII.h or arg_a == ASCII.H:
+            self.message = 'Press s to save; n for newgame; l to load or q to quit.'
+            return self
 
         # direction: up or down or left or right
         elif arg_a in [curses.KEY_DOWN, curses.KEY_UP, curses.KEY_RIGHT, curses.KEY_LEFT]:
@@ -325,10 +364,12 @@ class Game:
             if self.grid.is_stuck:
                 raise NotImplementedError(self.grid.vals, self.grid.is_stuck)
 
-            return self, ''
+            self.message = ''
+            return self
 
         else:
-            return self, ''
+            self.message = ''
+            return self
 
     def _atexit_(self):
         """
@@ -337,7 +378,6 @@ class Game:
         :return:
         """
         if len(self.history) > 0:
-            print
             self._save_()
 
     def _save_(self) -> Path:

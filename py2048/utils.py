@@ -1,5 +1,6 @@
 """Here lie the helper functions"""
 import numpy as np
+from typing import Union
 
 
 class NoFreeCells(ValueError):
@@ -7,6 +8,10 @@ class NoFreeCells(ValueError):
 
 
 class UnknownSessionID(FileNotFoundError):
+    ...
+
+
+class VisualisationError(Exception):
     ...
 
 
@@ -27,6 +32,7 @@ def dict_to_nparr(data: dict) -> np.ndarray:
     for i, row in enumerate(data):
         op[i] = row
     return op
+
 
 class FancyDict(dict):
     """
@@ -49,8 +55,8 @@ class FancyDict(dict):
         ```
     """
 
-    def __getattr__(self, item: str):
-        if item.startswith('__') and item.endswith('__'):
+    def __getattr__(self, item: Union[str, int]):
+        if isinstance(item, str) and item.startswith('__') and item.endswith('__'):
             super().__getattr__(item)
         return self[item]
 
