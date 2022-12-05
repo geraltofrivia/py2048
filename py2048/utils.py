@@ -23,7 +23,7 @@ def mutstr(base: str, ind: int, val: str):
 
 def nparr_to_dict(data: np.ndarray) -> dict:
     """ Break a (n x n) array into n arrays of n values """
-    return {f"row_{i}": row for i, row in enumerate(data)}
+    return {f"row_{i}": [int(x) for x in row] for i, row in enumerate(data)}
 
 
 def dict_to_nparr(data: dict) -> np.ndarray:

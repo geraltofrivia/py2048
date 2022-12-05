@@ -1,7 +1,10 @@
-""" The code for the game which includes everything else into a usable thing. """
+""" The curses interface for the game """
 import numpy as np
 import curses
 import time
+import atexit
+import curses
+from curses.textpad import Textbox, rectangle
 
 # Local imports
 try:
@@ -12,9 +15,10 @@ from engine import Game
 
 
 def draw_menu(stdscr):
-    k = 0
-    cursor_x = 0
-    cursor_y = 0
+    inp = 0
+
+    # Create game
+    game = Game()
 
     # Clear and refresh the screen for a blank canvas
     stdscr.clear()
@@ -27,23 +31,36 @@ def draw_menu(stdscr):
     curses.init_pair(3, curses.COLOR_BLACK, curses.COLOR_WHITE)
     curses.init_pair(4, curses.COLOR_BLACK, curses.COLOR_GREEN)
 
-    # Create game
-    game = Game()
 
     # Loop where k is the last character pressed
-    while (k != ord('q')):
+    while (inp != ord('q')):
 
         # Initialization
         stdscr.clear()
         height, width = stdscr.getmaxyx()
 
-        game = game.command(k)
+        game, status = game.command(inp)
 
         # Declaration of strings
         # title = "Curses example"[:width-1]
         # subtitle = "Written by Clay McLeod"[:width-1]
         # keystr = "Last key pressed: {}".format(k)[:width-1]
         statusbarstr = game.get_statusbar_message(width-1)
+
+        if inp == ord('l'):
+            editwin = curses.newwin(5, 30, 2, 1)
+            rectangle(stdscr, 1, 0, 1 + 5 + 1, 1 + 30 + 1)
+            stdscr.refresh()
+
+            box = Textbox(editwin)
+
+            # Let the user edit until Ctrl-G is struck.
+            box.edit()
+
+            # Get resulting contents
+            message = box.gather()
+            raise IOError(f'Message collected is: {message}')
+            continue
 
         # if k == 0:
         #     keystr = "No key press detected..."[:width-1]
@@ -95,7 +112,7 @@ def draw_menu(stdscr):
         # stdscr.attroff(curses.color_pair(4))
 
         # Wait for next input
-        k = stdscr.getch()
+        inp = stdscr.getch()
 
 
 def main():

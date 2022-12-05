@@ -50,7 +50,8 @@ class Grid:
         :param spawns: how many new blocks are added at each iteration
         :numgen a callable that generates a number to populate the grid. If unspecified, we
         """
-        self.vals: np.ndarray = np.zeros((dim, dim), dtype=int)
+        self.vals: np.ndarray = np.zeros((dim, dim), dtype=np.int32)
+        self._old_vals: np.ndarray = np.zeros((dim, dim), dtype=np.int32)
         self._spawn_freq: int = spawns
         self.dim: int = dim
         self._debug = debug
@@ -98,7 +99,11 @@ class Grid:
 
     @property
     def is_stuck(self) -> bool:
-        return np.all(self.vals != 0)
+        return (self.vals == self._old_vals).all()
+
+    @property
+    def is_over(self) -> bool:
+        return (self.vals != 0).all()
 
     def spawn(self, n=-1):
 
@@ -180,6 +185,9 @@ class Grid:
 
     def up(self) -> List[int]:
 
+        # overwrite old_val mat by current val mat
+        self._old_vals = np.copy(self.vals)
+
         # Go over each column and treat it as a row; add it back as a column
         merges = []
         for i in range(self.dim):
@@ -187,9 +195,13 @@ class Grid:
             self.vals[:, i] = op[0]
             merges += op[1]
 
+
         return merges
 
     def down(self) -> List[int]:
+
+        # overwrite old_val mat by current val mat
+        self._old_vals = np.copy(self.vals)
 
         # Go over each column and treat it as a row; invert it; add it back as a column after inverting the output
         merges = []
@@ -202,6 +214,9 @@ class Grid:
 
     def left(self) -> List[int]:
 
+        # overwrite old_val mat by current val mat
+        self._old_vals = np.copy(self.vals)
+
         # Go over each row and simply pass to the proc row
         merges = []
         for i, row in enumerate(self.vals):
@@ -212,6 +227,9 @@ class Grid:
         return merges
 
     def right(self) -> List[int]:
+
+        # overwrite old_val mat by current val mat
+        self._old_vals = np.copy(self.vals)
 
         # Go over each row and simply pass to the proc row but inverted; and invert the output also
         merges = []
@@ -247,6 +265,9 @@ class Game:
         self.session_id = self._gen_session_id_() if not session_id else session_id
         self.message = ''  # This message is updated at commands, and is queried as needed for the UI
 
+        # Shortcut to the visualization thing
+        self.viz = self.grid.viz
+
     def get_statusbar_message(self, width: int) -> str:
         """
             Left aligned: 8d score | instruction: press h for help |
@@ -259,9 +280,9 @@ class Game:
             TODO: add curses formatting support here
         :return: str
         """
-        left = f"{self.score:8d}|{self.message if self.message else 'Press h for help.'}"
-        history = ' '.join([ARROWS[direction] for direction in self.history[:-8:-1]])
-        right = f"{history}|{self.session_id}"
+        left = f"{self.score:8d} | {self.message if self.message else 'Press h for help.'}"
+        history = ' '.join([ARROWS[direction] for direction in self.history[:-15:-1]][::-1])
+        right = f"{history} | {self.session_id}"
 
         if len(left) + len(right) > width:
             # Render only left
@@ -298,49 +319,69 @@ class Game:
         """ Return a new object of this class (or something) """
         return Game()
 
-    def command(self, arg_a: int, arg_b: Optional[str] = None) -> 'Game':
+    def command(self, arg_a: int, arg_b: Optional[str] = None) -> ('Game', int):
         """
             The commands are passed here almost raw.
 
             The function called to interact with the grid.
             The possible commands we expect include:
-                -> newgame
-                -> move directions (up/down/left/right)
+                -> newgame (ASCII for 'n' or 'N')
+                -> move directions (up/down/left/right) (ascii for arrows)
                 -> load (with dir)
-                -> save
-        :param direction:
-        :return:
+                -> save (ASCII for 's' or 'S')
+                -> help (ASCII for 'h' or 'H')
+        :return: status code:
+            1. called save and save successful
+            2. called save and save unsuccessful
+            3. called load and load successful
+            4. called load and load unsuccessful
+            5. called newgame and newgame loaded
+            6. called help and help message shown
+            7. direction arrow given and it changed the state
+            8. direction arrow given and it didnt change the state
+            9. direction arrow given and game over | game was over when arrow was sent
+            10. unknown command
         """
+
+        self.message = ''
 
         # save
         if arg_a == ASCII.s or arg_a == ASCII.S:
-            save_fname = self._save_()
-            self.message = f'File saved to {save_fname}'
-            return self
+            try:
+                save_fname = self._save_()
+                self.message = f'File saved to {save_fname}'
+                return self, 1
+            except (FileNotFoundError, json.decoder.JSONDecodeError) as e:
+                self.message = f'Save unsuccessful. {type(e)}: {e.args}.'
+                return self, 2
 
         # load
         elif arg_a == ASCII.l or arg_a == ASCII.L:
             try:
                 newgame_obj = self._load_(arg_b)
                 newgame_obj.message = 'Just loaded from disk.'
-                return newgame_obj
+                return newgame_obj, 3
             except (UnknownSessionID, ValueError) as e:
-                self.message =  f'Unable to load this session. {type(e)}: {e.args}'
-                return self
+                self.message = f'Unable to load this session. {type(e)}: {e.args}.'
+                return self, 4
 
         # newgame
         elif arg_a == ASCII.n or arg_a == ASCII.N:
             self.message = ''
-            return self._newgame_()
+            return self._newgame_(), 5
 
         elif arg_a == ASCII.h or arg_a == ASCII.H:
             self.message = 'Press s to save; n for newgame; l to load or q to quit.'
-            return self
+            return self, 6
 
         # direction: up or down or left or right
         elif arg_a in [curses.KEY_DOWN, curses.KEY_UP, curses.KEY_RIGHT, curses.KEY_LEFT]:
 
             """Stuff before invoking state change"""
+            # See if the game is over, in which case send a game over message and dont move the grid.
+            if self.grid.is_over:
+                self.message = 'Game over. Press n for newgame or q to quit.'
+                return self, 9
 
             """Invoking state change"""
             if arg_a == curses.KEY_UP:
@@ -356,22 +397,27 @@ class Game:
 
             """Post invoking state change"""
 
-            self.history.append(arg_a)      # log the direction
-            self.score += sum(merges)       # update score
-            self.grid.spawn()               # spawn new values
+            self.history.append(arg_a)          # log the direction
+            self.score += sum(merges)           # update score
 
-            # 3. is it game over? (do the game over fn)
-            if self.grid.is_stuck:
-                raise NotImplementedError(self.grid.vals, self.grid.is_stuck)
+            # Is it game over? (do the game over fn)
+            if self.grid.is_over:
+                self.message = 'Game over. Press n for newgame or q to quit.'
+                return self, 9
 
-            self.message = ''
-            return self
+            # See if something changed in the grid, if so, spawn
+            if not self.grid.is_stuck:
+                self.grid.spawn()               # spawn new values
+                return self, 7
+            else:
+                self.message = 'No change. Try another direction ;)'
+                return self, 8
 
         else:
             self.message = ''
-            return self
+            return self, 10
 
-    def _atexit_(self):
+    def __del__(self):
         """
             Save the current game to disk if there is some activity in this session
             Do other things?
@@ -389,7 +435,7 @@ class Game:
         # Prepare the entire saving thing
         save_dict = {
             'grid': self.grid.serialise(),
-            'score': self.score,
+            'score': int(self.score),
             'history': self.history,
             'session_id': self.session_id
         }
@@ -445,6 +491,8 @@ if __name__ == '__main__':
             g.command(curses.KEY_LEFT)
         if cmd == 'd':
             g.command(curses.KEY_RIGHT)
+        if cmd == 'e':
+            g.command(115)
         if cmd == 'q':
             break
             # g.command(113)
