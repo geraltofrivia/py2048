@@ -11,7 +11,7 @@ try:
     import _pathfix
 except ImportError:
     from . import _pathfix
-from engine import Game
+from engine import Game, CONFIG
 
 
 def draw_menu(stdscr):
@@ -31,26 +31,27 @@ def draw_menu(stdscr):
     curses.init_pair(3, curses.COLOR_BLACK, curses.COLOR_WHITE)
     curses.init_pair(4, curses.COLOR_BLACK, curses.COLOR_GREEN)
 
-
-    # Loop where k is the last character pressed
-    while (inp != ord('q')):
+    # Loop where inp is the last character pressed
+    while inp != ord('q'):
 
         # Initialization
         stdscr.clear()
         height, width = stdscr.getmaxyx()
 
-        game, status = game.command(inp)
+        # Load game snippet
+        if inp == ord('l') or inp == ord('L'):
 
-        # Declaration of strings
-        # title = "Curses example"[:width-1]
-        # subtitle = "Written by Clay McLeod"[:width-1]
-        # keystr = "Last key pressed: {}".format(k)[:width-1]
-        statusbarstr = game.get_statusbar_message(width-1)
-
-        if inp == ord('l'):
-            editwin = curses.newwin(5, 30, 2, 1)
-            rectangle(stdscr, 1, 0, 1 + 5 + 1, 1 + 30 + 1)
+            # A new screen opens
+            stdscr.clear()
             stdscr.refresh()
+
+            # Collect some loadgame candidates
+            info = game.get_loadgame_candidates()
+            stdscr.addstr(0, 0, info)
+            stdscr.addstr(CONFIG.max_loadgame_candidates+3, 0, "Enter loadgame name: (hit Ctrl-G to send)")
+            editwin = curses.newwin(1, 30, CONFIG.max_loadgame_candidates+5 + 1, 1)
+            rectangle(stdscr, CONFIG.max_loadgame_candidates+5, 0, CONFIG.max_loadgame_candidates+5 + 5 + 1, 1 + 30 + 1)
+            # stdscr.refresh()
 
             box = Textbox(editwin)
 
@@ -58,9 +59,33 @@ def draw_menu(stdscr):
             box.edit()
 
             # Get resulting contents
-            message = box.gather()
-            raise IOError(f'Message collected is: {message}')
-            continue
+            message = box.gather().strip()
+
+            # We have collected the message, and now can invoke the command
+            res = game.command(ord('l'), arg_b=message)
+            if res == 4:
+
+                stdscr.refresh()
+
+                # draw another box telling that it didn't work
+                # rectangle(stdscr, 1, 0, 5 + 1, 1 + 30 + 1)
+                raise AssertionError
+                stdscr.clear()
+                stdscr.addstr(2, 2, f"Tried to load {message} but couldn't.\nPress any key to continue.")
+                _ = stdscr.getch()
+
+            stdscr.clear()
+
+        else:
+
+            game, status = game.command(inp)
+
+            # Declaration of strings
+            # title = "Curses example"[:width-1]
+            # subtitle = "Written by Clay McLeod"[:width-1]
+            # keystr = "Last key pressed: {}".format(k)[:width-1]
+            statusbarstr = game.get_statusbar_message(width - 1)
+            game_grid = game.grid.__repr__()
 
         # if k == 0:
         #     keystr = "No key press detected..."[:width-1]
@@ -73,8 +98,7 @@ def draw_menu(stdscr):
 
         # Rendering some text
         # whstr = "Width: {},\n Height: {}".format(width, height)
-        whstr = game.grid.__repr__()
-        stdscr.addstr(0, 0, whstr, curses.color_pair(1))
+        stdscr.addstr(0, 0, game_grid, curses.color_pair(1))
 
         # Render status bar
         stdscr.attron(curses.color_pair(3))

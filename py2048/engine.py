@@ -2,17 +2,21 @@
 import json
 import curses
 import random
+import datetime
 import numpy as np
 from pathlib import Path
-from typing import Optional, Callable, List
+from tabulate import tabulate
+from typing import Optional, Callable, List, Union, Tuple
 from random_username.generate import generate_username
 
 from visualisation import VisualizeGrid
 from utils import FancyDict, NoFreeCells, nparr_to_dict, dict_to_nparr, UnknownSessionID, VisualisationError
 
+ROOT_LOC: Path = Path("..") if 'py2048/py2048' in Path().cwd().__str__() else Path(".")
 CONFIG = FancyDict(**{
     'seed': 42,
-    'savedir': Path('./saves')
+    'savedir': ROOT_LOC / Path('saves'),
+    'max_loadgame_candidates': 5
 })
 
 random.seed(CONFIG.seed)
@@ -23,7 +27,7 @@ ASCII = FancyDict(**{
     'S': 83,
     'q': 113,
     'Q': 81,
-    'l': 107,
+    'l': 108,
     'L': 76,
     'n': 110,
     'N': 78,
@@ -98,12 +102,22 @@ class Grid:
         self.vals = mat
 
     @property
-    def is_stuck(self) -> bool:
+    def is_unchanged(self) -> bool:
         return (self.vals == self._old_vals).all()
 
     @property
     def is_over(self) -> bool:
-        return (self.vals != 0).all()
+        if not bool((self.vals != 0).all()):                        # there is at least one zero
+            return False
+        elif not (self.vals == self.up(self.vals.copy())).all():    # up direction changes something
+            return False
+        elif not (self.vals == self.down(self.vals.copy())).all():  # down direction changes something
+            return False
+        elif not (self.vals == self.left(self.vals.copy())).all():  # left direction changes something
+            return False
+        elif not (self.vals == self.right(self.vals.copy())).all(): # left direction changes something
+            return False
+        return True
 
     def spawn(self, n=-1):
 
@@ -183,62 +197,101 @@ class Grid:
 
         return row, merges
 
-    def up(self) -> List[int]:
+    def up(self, vals: Optional[np.ndarray] = None) -> Union[List[int], Tuple[np.ndarray, List[int]]]:
+        """ Simulate a direction movement. If vals arg is provided, we do the operation on it. Else we do it on"""
 
-        # overwrite old_val mat by current val mat
-        self._old_vals = np.copy(self.vals)
+        if vals is None:
+            # overwrite old_val mat by current val mat
+            vals = self.vals
+            self._old_vals = np.copy(self.vals)
+            update_self = True
+        else:
+            update_self = False
 
         # Go over each column and treat it as a row; add it back as a column
         merges = []
         for i in range(self.dim):
-            op =  self._proc_row_(self.vals[:, i])
+            op =  self._proc_row_(vals[:, i])
             self.vals[:, i] = op[0]
             merges += op[1]
 
+        if update_self:
+            self.vals = vals
+            return merges
+        else:
+            return vals, merges
 
-        return merges
+    def down(self, vals: Optional[np.ndarray] = None) -> Union[List[int], Tuple[np.ndarray, List[int]]]:
+        """ Simulate a direction movement. If vals arg is provided, we do the operation on it. Else we do it on"""
 
-    def down(self) -> List[int]:
-
-        # overwrite old_val mat by current val mat
-        self._old_vals = np.copy(self.vals)
+        if vals is None:
+            # overwrite old_val mat by current val mat
+            vals = self.vals
+            self._old_vals = np.copy(self.vals)
+            update_self = True
+        else:
+            update_self = False
 
         # Go over each column and treat it as a row; invert it; add it back as a column after inverting the output
         merges = []
         for i in range(self.dim):
-            op =  self._proc_row_(self.vals[:, i][::-1])
-            self.vals[:, i] = op[0][::-1]
+            op =  self._proc_row_(vals[:, i][::-1])
+            vals[:, i] = op[0][::-1]
             merges += op[1]
 
-        return merges
+        if update_self:
+            self.vals = vals
+            return merges
+        else:
+            return vals, merges
 
-    def left(self) -> List[int]:
+    def left(self, vals: Optional[np.ndarray] = None) -> Union[List[int], Tuple[np.ndarray, List[int]]]:
+        """ Simulate a direction movement. If vals arg is provided, we do the operation on it. Else we do it on"""
 
-        # overwrite old_val mat by current val mat
-        self._old_vals = np.copy(self.vals)
+        if vals is None:
+            # overwrite old_val mat by current val mat
+            vals = self.vals
+            self._old_vals = np.copy(self.vals)
+            update_self = True
+        else:
+            update_self = False
 
         # Go over each row and simply pass to the proc row
         merges = []
-        for i, row in enumerate(self.vals):
+        for i, row in enumerate(vals):
             op =  self._proc_row_(row)
-            self.vals[i] = op[0]
+            vals[i] = op[0]
             merges += op[1]
 
-        return merges
+        if update_self:
+            self.vals = vals
+            return merges
+        else:
+            return vals, merges
 
-    def right(self) -> List[int]:
+    def right(self, vals: Optional[np.ndarray] = None) -> Union[List[int], Tuple[np.ndarray, List[int]]]:
+        """ Simulate a direction movement. If vals arg is provided, we do the operation on it. Else we do it on"""
 
-        # overwrite old_val mat by current val mat
-        self._old_vals = np.copy(self.vals)
+        if vals is None:
+            # overwrite old_val mat by current val mat
+            vals = self.vals
+            self._old_vals = np.copy(self.vals)
+            update_self = True
+        else:
+            update_self = False
 
         # Go over each row and simply pass to the proc row but inverted; and invert the output also
         merges = []
-        for i, row in enumerate(self.vals):
+        for i, row in enumerate(vals):
             op =  self._proc_row_(row[::-1])
-            self.vals[i] = op[0][::-1]
+            vals[i] = op[0][::-1]
             merges += op[1]
 
-        return merges
+        if update_self:
+            self.vals = vals
+            return merges
+        else:
+            return vals, merges
 
     def __repr__(self) -> str:
 
@@ -293,6 +346,30 @@ class Game:
         else:
             pad = ' '*(width - len(left) - len(right))
             return left + pad + right
+
+    def get_loadgame_candidates(self):
+        """ Go to savedir and find savegame candidates, sorted by last edit date, and mention score and state. """
+        data = []
+        saved_files = sorted([f for f in self.save_fname.parent.glob('*.json')], key=lambda fnm: -fnm.stat().st_mtime)[:CONFIG.max_loadgame_candidates]
+        scores = []
+        is_not_gameover = []
+        edit_timestamp = []
+        for f in saved_files:
+            try:
+                loaded = json.load(f.open('r'))
+                scores.append(loaded['score'])
+                is_not_gameover.append('✓' if not loaded['gameover'] else '𐄂')
+                edit_timestamp.append(str(datetime.datetime.fromtimestamp(f.stat().st_mtime)))
+            except json.decoder.JSONDecodeError:
+                scores.append('--')
+                is_not_gameover.append('?')
+                edit_timestamp.append('XXXX-XX-XX XX:XX:XX.XXXXXX')
+
+        # Present all this in a nice table.
+        table = [['SessionID', 'Last Edit Time', 'Score', 'Game is playable?']]
+        table += [[nm.stem, dtime, score, gmover]
+                 for nm, dtime, score, gmover in zip(saved_files, edit_timestamp, scores, is_not_gameover)]
+        return tabulate(table, headers='firstrow')
 
     @property
     def save_fname(self):
@@ -358,6 +435,7 @@ class Game:
         # load
         elif arg_a == ASCII.l or arg_a == ASCII.L:
             try:
+                raise AssertionError(str(arg_a) + '||||' + str(arg_b))
                 newgame_obj = self._load_(arg_b)
                 newgame_obj.message = 'Just loaded from disk.'
                 return newgame_obj, 3
@@ -406,7 +484,7 @@ class Game:
                 return self, 9
 
             # See if something changed in the grid, if so, spawn
-            if not self.grid.is_stuck:
+            if not self.grid.is_unchanged:
                 self.grid.spawn()               # spawn new values
                 return self, 7
             else:
@@ -437,7 +515,8 @@ class Game:
             'grid': self.grid.serialise(),
             'score': int(self.score),
             'history': self.history,
-            'session_id': self.session_id
+            'session_id': self.session_id,
+            'gameover': self.grid.is_over
         }
 
         try:
@@ -492,7 +571,10 @@ if __name__ == '__main__':
         if cmd == 'd':
             g.command(curses.KEY_RIGHT)
         if cmd == 'e':
-            g.command(115)
+            g.command(ord('s'))
+        if cmd == 'r':
+            txt = g.get_loadgame_candidates()
+            print(txt)
         if cmd == 'q':
             break
             # g.command(113)

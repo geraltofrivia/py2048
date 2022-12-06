@@ -22,7 +22,7 @@ class Theme(ABC):
             topinter: str = '',
             rightinter: str = '',
             leftinter: str = '',
-            fourwayinter: str = ''
+            fourwayinter: str = '',
     ):
         self.hor = hor  # horizontal
         self.ver = ver  # vertical mark
